@@ -1,8 +1,8 @@
-iwinfo wlan0 scan > /tmp/wifiscan #save scan results to a temp file
+iw dev wlp8s0 scan > /tmp/wifiscan #save scan results to a temp file
 if [ -f /tmp/ssids ]; then
     rm /tmp/ssids
 fi
-n_results=$(grep -c "ESSID:" /tmp/wifiscan) #save number of scanned cell
+n_results=$(grep -c "SSID:" /tmp/wifiscan) #save number of scanned cell
 i=1
 while [ "$i" -le "$n_results" ]; do
     if [ $i -lt 10 ]; then
@@ -23,7 +23,7 @@ while [ "$i" -le "$n_results" ]; do
 
     #oneaddress=$(grep " Address:" /tmp/onecell | awk '{print $5}')
 
-    onessid=$(grep "ESSID:" /tmp/onecell | awk '{ sub(/^[ \t]+/, ""); print }' | awk '{gsub("ESSID:", "");print}')
+    onessid=$(grep "SSID:" /tmp/onecell | awk '{ sub(/^[ \t]+/, ""); print }' | awk '{gsub("SSID:", "");print}')
     if [ -n "$oneaddress" ]; then                                                                                                            
         echo "$onessid  $oneaddress $oneencryption $onepower" >> /tmp/ssids                                                              
     else                                                                                                                                     
@@ -33,5 +33,5 @@ while [ "$i" -le "$n_results" ]; do
 done
 rm /tmp/onecell
 awk '{printf("%s\n", $0)}' /tmp/ssids > /tmp/sec_ssids #add numbers at beginning of line
-grep ESSID /tmp/wifiscan | awk '{ sub(/^[ \t]+/, ""); print }' | awk '{printf("%5d : %s\n", NR,$0)}' | awk '{gsub("ESSID:", "");print}' > /tmp/ssids #generate file with only numbers and names
+grep SSID /tmp/wifiscan | awk '{ sub(/^[ \t]+/, ""); print }' | awk '{printf("%5d : %s\n", NR,$0)}' | awk '{gsub("SSID:", "");print}' > /tmp/ssids #generate file with only numbers and names
 cat /tmp/sec_ssids #show ssids list

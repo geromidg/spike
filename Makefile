@@ -1,26 +1,25 @@
-########################################
-# Makefile for RTES Exercise 3	       #
-# 				       #
-# Kostas Mylonakis -- mylonakk@auth.gr #
-########################################
+TARGET = project_3
 
-#Note: searchWifi.sh works only on zSun, probably not in any OS.
+LIBS = -pthread -lrt
+CC = gcc
+CFLAGS = -g -Wall
 
-#remember to change this for cross-compile
-CC=gcc
+.PHONY: default all clean
 
-#remember to upload coresponding lib @zSun:/lib
-LIBS=-lpthread
+default: $(TARGET)
+all: default
 
-RM=rm -f
+OBJECTS = $(patsubst %.c, %.o, $(wildcard *.c))
+HEADERS = $(wildcard *.h)
 
-all: prod-cons callScript
+%.o: %.c $(HEADERS)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-prod-cons: prod-cons.c
-	$(CC) $< -o $@ $(LIBS)
+.PRECIOUS: $(TARGET) $(OBJECTS)
 
-callScript: callScript.c
-	$(CC) $< -o $@ $(LIBS)
+$(TARGET): $(OBJECTS)
+	$(CC) $(OBJECTS) -Wall $(LIBS) -o $@
 
 clean:
-	$(RM) prod-cons callScript
+	-rm -f *.o *.c *.h
+	-rm -f $(TARGET)
