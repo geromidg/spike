@@ -44,14 +44,18 @@
 #define NSEC_PER_SEC (1000000000u)
 #define NSEC_PER_MSEC (1000000u)
 
+/** The max size of the SSID. */
+#define SSID_SIZE (32u)
+
 /***************************** Static Variables ******************************/
 
 /** The cycle time between the task calls. */
 static u64_t cycle_time;
 
-/** The saved timestamp of each sample. */
-static f32_t* timestamps;
-// static char** ssids;
+/** The saved ssids and their timestamp. */
+static char** ssids;
+static u32_t* num_timestamps;
+static f32_t** timestamps;
 
 /** The main timer of the scheduler. */
 static struct timespec main_task_timer;
@@ -128,15 +132,15 @@ void INIT_TASK(int argc, char** argv)
         }
 
         cycle_time = atoi(argv[1]) * NSEC_PER_MSEC;
-
-        timestamps = (f32_t*) malloc (sizeof(f32_t));
-        //ssids = (u8_t*) malloc (sizeof(u8_t));
 }
 
 void* MAIN_TASK(void* ptr)
 {
         u64_t i;
-        u64_t size = 1;
+        u64_t size = 0;
+        char ssid[SSID_SIZE];
+        f32_t timestamp;
+        u8_t ssid_found;
 
         /* Synchronize scheduler's timer. */
         clock_gettime(CLOCK_MONOTONIC, &main_task_timer);
@@ -146,37 +150,47 @@ void* MAIN_TASK(void* ptr)
                 /* Calculate next shot */
                 updateInterval(cycle_time);
 
-                // {
-                //         FILE *fp;
+                timestamp = getTimestamp();
 
-                //         /* Open the command for reading. */
-                //         fp = popen("/bin/sh searchWifi.sh", "r");
-                //         if (fp == NULL) {
-                //           printf("Failed to run command\n" );
-                //           exit(1);
-                //         }
-                       
-                //         /* Read the output a line at a time - output it. */
-                //         while (fgets(path, sizeof(path)-1, fp) != NULL) {
-                //           printf("%s", path);
-                //         }
+                // TODO: Store script result first in an (array) buffer and then read!
+                FILE *script = popen("/bin/bash searchWifi.sh", "r");             
+                while (fgets(ssid, sizeof(ssid) - 1, script) != NULL)
+                {
+                        ssid_found = 0;
 
-                //         /* close */
-                //         pclose(fp);
-                // }
+                        for (i = 0; i < size; i++)
+                        {
+                                if (!strcmp(ssid, ssids[i]))  /* equal */
+                                {
+                                        // timestamps = realloc (timestamps, sizeof(f32_t*));
 
-                /* Store the timestamp */
-                timestamps[size - 1] = getTimestamp();
+                                        ssid_found = 1;
+                                        break;
+                                }
+                        }
 
-                FILE *file = fopen("timestamps.txt", "w");
+                        if (!ssid_found)
+                        {
+                                size++;
+
+                                ssids = realloc (ssids, sizeof(char*) * SSID_SIZE * size);
+                                strcpy(ssids[size - 1], ssid);
+
+                                num_timestamps = realloc (num_timestamps, sizeof(u32_t) * size);
+                                num_timestamps[size - 1] = 1;
+
+                                // timestamps = realloc (timestamps, sizeof(f32_t*));
+                        }
+                }
+                pclose(script);
+
+                FILE *file = fopen("ssids.txt", "w");
                 for (i = 0; i < size; i++)
                 {
-                        fprintf(file, "%.5f\n", timestamps[i]);
+                        fprintf(file, "%s\n", ssids[i]);
+                        fprintf(file, "%u\n", num_timestamps[i]);
                 }
                 fclose(file);
-
-                size++;
-                timestamps = (f32_t*) realloc (timestamps, sizeof(f32_t) * size);
 
                 /* Sleep for the remaining duration */
                 (void)clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &main_task_timer, NULL);
@@ -187,8 +201,9 @@ void* MAIN_TASK(void* ptr)
 
 void EXIT_TASK(void)
 {
+        free(ssids);
+        free(num_timestamps);
         free(timestamps);
-        //free(ssids);
 }
 
 /********************************** Main Entry *******************************/
