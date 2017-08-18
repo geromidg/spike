@@ -46,10 +46,14 @@
 /** The max size of the SSID. */
 #define SSID_SIZE (64u)
 
+/** The cycle time ratio between the two tasks. */
+#define READ_STORE_CYCLE_RATIO (0.1f)  /* Store task run 10 times slower than Read */
+
 /***************************** Static Variables ******************************/
 
 /** The cycle time between the task calls. */
-static u64_t cycle_time;
+static u64_t read_cycle_time;
+static u64_t store_cycle_time;
 
 /** The saved ssids and their timestamp. */
 static u64_t ssid_num = 0;
@@ -59,8 +63,9 @@ static u8_t buffer_index;
 static u32_t* num_timestamps;
 static f32_t** timestamps;
 
-/** The main timer of the scheduler. */
-static struct timespec main_task_timer;
+/** The timers of the tasks. */
+static struct timespec read_task_timer;
+static struct timespec store_task_timer;
 
 /******************** Static General Function Prototypes *********************/
 
@@ -75,7 +80,7 @@ static void prefaultStack(void);
   * @param interval The interval needed to perform the update.
   * @return Void.
   */
-static void updateInterval(u64_t interval);
+static void updateInterval(struct timespec* task_timer, u64_t interval);
 
 /**
   * @brief Get the current time.
@@ -93,7 +98,8 @@ static void writeToFile(void);
 static void INIT_TASK(int argc, char** argv);
 static void EXIT_TASK(void);
 
-static void* MAIN_TASK(void* ptr);
+static void* READ_TASK(void* ptr);
+static void* STORE_TASK(void* ptr);
 
 /************************** Static General Functions *************************/
 
@@ -106,15 +112,15 @@ void prefaultStack(void)
         return;
 }
 
-void updateInterval(u64_t interval)
+void updateInterval(struct timespec* task_timer, u64_t interval)
 {
-        main_task_timer.tv_nsec += interval;
+        task_timer->tv_nsec += interval;
 
         /* Normalize time (when nsec have overflowed) */
-        while (main_task_timer.tv_nsec >= NSEC_PER_SEC)
+        while (task_timer->tv_nsec >= NSEC_PER_SEC)
         {
-                main_task_timer.tv_nsec -= NSEC_PER_SEC;
-                main_task_timer.tv_sec++;
+                task_timer->tv_nsec -= NSEC_PER_SEC;
+                task_timer->tv_sec++;
         }
 }
 
@@ -134,9 +140,10 @@ void copySSIDsToBuffer(void)
 
         FILE *file = popen("/bin/bash searchWifi.sh", "r");
 
+        buffer_index = 0;
+
         if (file != NULL)
         {
-                buffer_index = 0;
 
                 while (fgets(ssid, sizeof(ssid) - 1, file) != NULL)
                 {
@@ -224,31 +231,49 @@ void INIT_TASK(int argc, char** argv)
                 exit(-4);
         }
 
-        cycle_time = atoi(argv[1]) * NSEC_PER_SEC;
+        read_cycle_time = atoi(argv[1]) * NSEC_PER_SEC;
+        store_cycle_time = (u64_t)(read_cycle_time * READ_STORE_CYCLE_RATIO);
 }
 
-void* MAIN_TASK(void* ptr)
+void* READ_TASK(void* ptr)
 {
-        f32_t timestamp;
-
         /* Synchronize scheduler's timer. */
-        clock_gettime(CLOCK_MONOTONIC, &main_task_timer);
+        clock_gettime(CLOCK_MONOTONIC, &read_task_timer);
 
         while(1)
         {
                 /* Calculate next shot */
-                updateInterval(cycle_time);
+                updateInterval(&read_task_timer, read_cycle_time);
 
-                timestamp = getTimestamp();
-
+                // TODO: Add timestamp to buffer!
                 copySSIDsToBuffer();
 
+                /* Sleep for the remaining duration */
+                (void)clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &read_task_timer, NULL);
+        }
+
+        return (void*)NULL;
+}
+
+void* STORE_TASK(void* ptr)
+{
+        f32_t timestamp;
+
+        /* Synchronize scheduler's timer. */
+        clock_gettime(CLOCK_MONOTONIC, &store_task_timer);
+
+        while(1)
+        {
+                /* Calculate next shot */
+                updateInterval(&store_task_timer, store_cycle_time);
+
+                timestamp = getTimestamp();
                 storeSSIDs(timestamp);
 
                 writeToFile();
 
                 /* Sleep for the remaining duration */
-                (void)clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &main_task_timer, NULL);
+                (void)clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &store_task_timer, NULL);
         }
 
         return (void*)NULL;
@@ -269,7 +294,11 @@ s32_t main(int argc, char** argv)
 
         pthread_t thread_1;
         pthread_attr_t attr_1;
-        struct sched_param parm_1;
+        struct sched_param param_1;
+
+        pthread_t thread_2;
+        pthread_attr_t attr_2;
+        struct sched_param param_2;
 
         /*********************************************************************/
 
@@ -297,17 +326,29 @@ s32_t main(int argc, char** argv)
         /*********************************************************************/
 
         pthread_attr_init(&attr_1);
-        pthread_attr_getschedparam(&attr_1, &parm_1);
-        parm_1.sched_priority = TASK_PRIORITY;
+        pthread_attr_getschedparam(&attr_1, &param_1);
+        param_1.sched_priority = TASK_PRIORITY;
         pthread_attr_setschedpolicy(&attr_1, SCHED_RR);
-        pthread_attr_setschedparam(&attr_1, &parm_1);
+        pthread_attr_setschedparam(&attr_1, &param_1);
 
-        (void)pthread_create(&thread_1, &attr_1, (void*)MAIN_TASK, (void*)NULL);
-        pthread_setschedparam(thread_1, SCHED_RR, &parm_1);
+        (void)pthread_create(&thread_1, &attr_1, (void*)READ_TASK, (void*)NULL);
+        pthread_setschedparam(thread_1, SCHED_RR, &param_1);
+
+        /*********************************************************************/
+
+        pthread_attr_init(&attr_2);
+        pthread_attr_getschedparam(&attr_2, &param_2);
+        param_2.sched_priority = TASK_PRIORITY;
+        pthread_attr_setschedpolicy(&attr_2, SCHED_RR);
+        pthread_attr_setschedparam(&attr_2, &param_2);
+
+        (void)pthread_create(&thread_2, &attr_2, (void*)STORE_TASK, (void*)NULL);
+        pthread_setschedparam(thread_2, SCHED_RR, &param_2);
 
         /*********************************************************************/
 
         pthread_join(thread_1, NULL);
+        pthread_join(thread_2, NULL);
 
         EXIT_TASK();
 
