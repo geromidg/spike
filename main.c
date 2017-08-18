@@ -40,9 +40,8 @@
 /** This is the maximum size of the stack which is guaranteed safe access without faulting. */
 #define MAX_SAFE_STACK (128u * 1024u)
 
-/** The number of nsecs per sec/msec. */
+/** The number of nsecs per sec. */
 #define NSEC_PER_SEC (1000000000u)
-#define NSEC_PER_MSEC (1000000u)
 
 /** The max size of the SSID. */
 #define SSID_SIZE (64u)
@@ -53,7 +52,10 @@
 static u64_t cycle_time;
 
 /** The saved ssids and their timestamp. */
+static u64_t ssid_num = 0;
 static char** ssids;
+static char ssid_buffer[32][SSID_SIZE];
+static u8_t buffer_index;
 static u32_t* num_timestamps;
 static f32_t** timestamps;
 
@@ -79,7 +81,12 @@ static void updateInterval(u64_t interval);
   * @brief Get the current time.
   * @return The current time.
   */
-f32_t getTimestamp(void);
+static f32_t getTimestamp(void);
+
+/**
+  * @brief Write SSIDs and their timestamps to a file.
+  */
+static void writeToFile(void);
 
 /********************* Static Task Function Prototypes ***********************/
 
@@ -121,6 +128,92 @@ f32_t getTimestamp(void)
         return current_t.tv_sec + (current_t.tv_nsec / (f32_t)1000000000u);
 }
 
+void copySSIDsToBuffer(void)
+{
+        char ssid[SSID_SIZE];
+
+        FILE *file = popen("/bin/bash searchWifi.sh", "r");
+
+        if (file != NULL)
+        {
+                buffer_index = 0;
+
+                while (fgets(ssid, sizeof(ssid) - 1, file) != NULL)
+                {
+                        if (strncmp(ssid, "x00", 3))  /* skip if SSID is x00* */
+                        {
+                                strcpy(ssid_buffer[buffer_index++], ssid);
+                        }
+                }
+
+                pclose(file);
+        }
+}
+
+void storeSSIDs(float timestamp)
+{              
+        u64_t i, j;
+        u8_t ssid_found;
+
+        for (i = 0; i < buffer_index; i++)
+        {
+                ssid_found = 0;
+
+                for (j = 0; j < ssid_num; j++)
+                {
+                        if (!strcmp(ssids[j], ssid_buffer[i]) &&  /* equal and non-existent */
+                            timestamps[j][num_timestamps[j] - 1] != timestamp)
+                        {
+                                num_timestamps[j]++;
+
+                                timestamps[j] = realloc(timestamps[j], sizeof(f32_t) * num_timestamps[j]);
+                                timestamps[j][num_timestamps[j] - 1] = timestamp;
+                               
+                                ssid_found = 1;
+                                break;
+                        }
+                }
+
+                if (!ssid_found)
+                {
+                        ssid_num++;
+
+                        ssids = realloc(ssids, sizeof(char*) * ssid_num);
+                        ssids[ssid_num - 1] = malloc(sizeof(char) * SSID_SIZE);
+                        strcpy(ssids[ssid_num - 1], ssid_buffer[i]);
+
+                        num_timestamps = realloc(num_timestamps, sizeof(u32_t) * ssid_num);
+                        num_timestamps[ssid_num - 1] = 1;
+
+                        timestamps = realloc(timestamps, sizeof(f32_t*) * ssid_num);
+                        timestamps[ssid_num - 1] = malloc(sizeof(f32_t));
+                        timestamps[ssid_num - 1][0] = timestamp;
+                }
+        }
+}
+
+void writeToFile(void)
+{
+        u64_t i, j;
+
+        FILE *file = fopen("ssids.txt", "w");
+
+        if (file != NULL)
+        {
+                for (i = 0; i < ssid_num; i++)
+                {
+                        fprintf(file, "%s", ssids[i]);
+                        for (j = 0; j < num_timestamps[i]; j++)
+                        {
+                                fprintf(file, "    %.5f\n", timestamps[i][j]);
+                        }
+                        fprintf(file, "\n");
+                }
+
+                fclose(file);
+        }
+}
+
 /*****************************************************************************/
 
 void INIT_TASK(int argc, char** argv)
@@ -131,16 +224,12 @@ void INIT_TASK(int argc, char** argv)
                 exit(-4);
         }
 
-        cycle_time = atoi(argv[1]) * NSEC_PER_MSEC;
+        cycle_time = atoi(argv[1]) * NSEC_PER_SEC;
 }
 
 void* MAIN_TASK(void* ptr)
 {
-        u64_t i, j;
-        u64_t size = 0;
-        char ssid[SSID_SIZE];
         f32_t timestamp;
-        u8_t ssid_found;
 
         /* Synchronize scheduler's timer. */
         clock_gettime(CLOCK_MONOTONIC, &main_task_timer);
@@ -152,67 +241,11 @@ void* MAIN_TASK(void* ptr)
 
                 timestamp = getTimestamp();
 
-                // printf("NEW!\n");
+                copySSIDsToBuffer();
 
-                // TODO: Store script result first in an (array) buffer and then read!
-                FILE *script = popen("/bin/bash searchWifi.sh", "r");
-                while (fgets(ssid, sizeof(ssid) - 1, script) != NULL)
-                {
-                        // printf("%s", ssid);
+                storeSSIDs(timestamp);
 
-                        if (!strncmp(ssid, "x00", 3))  /* skip if SSID is x00* */
-                        {
-                                continue;
-                        }
-
-                        ssid_found = 0;
-
-                        for (i = 0; i < size; i++)
-                        {
-                                if (!strcmp(ssids[i], ssid))  /* equal */
-                                {
-                                        if (timestamps[i][num_timestamps[i] - 1] != timestamp)  /* skip channel repetitions */
-                                        {
-                                                num_timestamps[i]++;
-
-                                                timestamps[i] = realloc(timestamps[i], sizeof(f32_t) * num_timestamps[i]);
-                                                timestamps[i][num_timestamps[i] - 1] = timestamp;
-                                        }
-
-                                        ssid_found = 1;
-                                        break;
-                                }
-                        }
-
-                        if (!ssid_found)
-                        {
-                                size++;
-
-                                ssids = realloc(ssids, sizeof(char*) * size);
-                                ssids[size - 1] = realloc(ssids[size - 1], sizeof(char) * SSID_SIZE);
-                                strcpy(ssids[size - 1], ssid);
-
-                                num_timestamps = realloc(num_timestamps, sizeof(u32_t) * size);
-                                num_timestamps[size - 1] = 1;
-
-                                timestamps = realloc (timestamps, sizeof(f32_t*) * size);
-                                timestamps[size - 1] = realloc(timestamps[size - 1], sizeof(f32_t));
-                                timestamps[size - 1][0] = timestamp;
-                        }
-                }
-                pclose(script);
-
-                FILE *file = fopen("ssids.txt", "w");
-                for (i = 0; i < size; i++)
-                {
-                        fprintf(file, "%s", ssids[i]);
-                        for (j = 0; j < num_timestamps[i]; j++)
-                        {
-                                fprintf(file, "    %.5f\n", timestamps[i][j]);
-                        }
-                        fprintf(file, "\n");
-                }
-                fclose(file);
+                writeToFile();
 
                 /* Sleep for the remaining duration */
                 (void)clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &main_task_timer, NULL);
