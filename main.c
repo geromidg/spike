@@ -45,7 +45,7 @@
 #define NSEC_PER_MSEC (1000000u)
 
 /** The max size of the SSID. */
-#define SSID_SIZE (32u)
+#define SSID_SIZE (64u)
 
 /***************************** Static Variables ******************************/
 
@@ -136,7 +136,7 @@ void INIT_TASK(int argc, char** argv)
 
 void* MAIN_TASK(void* ptr)
 {
-        u64_t i;
+        u64_t i, j;
         u64_t size = 0;
         char ssid[SSID_SIZE];
         f32_t timestamp;
@@ -146,23 +146,38 @@ void* MAIN_TASK(void* ptr)
         clock_gettime(CLOCK_MONOTONIC, &main_task_timer);
 
         while(1)
-        {                
+        {
                 /* Calculate next shot */
                 updateInterval(cycle_time);
 
                 timestamp = getTimestamp();
 
+                // printf("NEW!\n");
+
                 // TODO: Store script result first in an (array) buffer and then read!
-                FILE *script = popen("/bin/bash searchWifi.sh", "r");             
+                FILE *script = popen("/bin/bash searchWifi.sh", "r");
                 while (fgets(ssid, sizeof(ssid) - 1, script) != NULL)
                 {
+                        // printf("%s", ssid);
+
+                        if (!strncmp(ssid, "x00", 3))  /* skip if SSID is x00* */
+                        {
+                                continue;
+                        }
+
                         ssid_found = 0;
 
                         for (i = 0; i < size; i++)
                         {
-                                if (!strcmp(ssid, ssids[i]))  /* equal */
+                                if (!strcmp(ssids[i], ssid))  /* equal */
                                 {
-                                        // timestamps = realloc (timestamps, sizeof(f32_t*));
+                                        if (timestamps[i][num_timestamps[i] - 1] != timestamp)  /* skip channel repetitions */
+                                        {
+                                                num_timestamps[i]++;
+
+                                                timestamps[i] = realloc(timestamps[i], sizeof(f32_t) * num_timestamps[i]);
+                                                timestamps[i][num_timestamps[i] - 1] = timestamp;
+                                        }
 
                                         ssid_found = 1;
                                         break;
@@ -173,13 +188,16 @@ void* MAIN_TASK(void* ptr)
                         {
                                 size++;
 
-                                ssids = realloc (ssids, sizeof(char*) * SSID_SIZE * size);
+                                ssids = realloc(ssids, sizeof(char*) * size);
+                                ssids[size - 1] = realloc(ssids[size - 1], sizeof(char) * SSID_SIZE);
                                 strcpy(ssids[size - 1], ssid);
 
-                                num_timestamps = realloc (num_timestamps, sizeof(u32_t) * size);
+                                num_timestamps = realloc(num_timestamps, sizeof(u32_t) * size);
                                 num_timestamps[size - 1] = 1;
 
-                                // timestamps = realloc (timestamps, sizeof(f32_t*));
+                                timestamps = realloc (timestamps, sizeof(f32_t*) * size);
+                                timestamps[size - 1] = realloc(timestamps[size - 1], sizeof(f32_t));
+                                timestamps[size - 1][0] = timestamp;
                         }
                 }
                 pclose(script);
@@ -187,8 +205,12 @@ void* MAIN_TASK(void* ptr)
                 FILE *file = fopen("ssids.txt", "w");
                 for (i = 0; i < size; i++)
                 {
-                        fprintf(file, "%s\n", ssids[i]);
-                        fprintf(file, "%u\n", num_timestamps[i]);
+                        fprintf(file, "%s", ssids[i]);
+                        for (j = 0; j < num_timestamps[i]; j++)
+                        {
+                                fprintf(file, "    %.5f\n", timestamps[i][j]);
+                        }
+                        fprintf(file, "\n");
                 }
                 fclose(file);
 
