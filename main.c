@@ -1,9 +1,6 @@
 /**
   * @file main.c
-  * @brief Contains the scheduler and the entry point for the implementation of Project 3 on BCM2837.
-  *
-  * The scheduler is the main entry of the system.
-  * Its purpose is to execute and monitor all the tasks needed to complete a full cycle.
+  * @brief Contains the scheduler and the entry point for the implementation of WifiScanner on BCM2837.
   *
   * @author Dimitrios Panagiotis G. Geromichalos (dgeromichalos)
   * @date August, 2017
@@ -49,9 +46,6 @@
 /** The size of the SSID buffer. */
 #define BUFFER_SIZE (32u)
 
-/** The cycle time ratio between the two tasks. */
-#define READ_STORE_CYCLE_RATIO (0.1f)  /* Store task run 10 times slower than Read */
-
 /***************************** Type Definitions ******************************/
 
 /** The SSID queue for the read/store (producer/consumer) model. */
@@ -63,17 +57,17 @@ struct SSIDQueue {
   u8_t full, empty;
 
   pthread_mutex_t mutex;
+  pthread_cond_t not_empty;
+  pthread_cond_t not_full;
 };
 
 /***************************** Static Variables ******************************/
 
 /** The cycle time between the task calls. */
 static u64_t read_cycle_time;
-static u64_t store_cycle_time;
 
 /** The timers of the tasks. */
 static struct timespec read_task_timer;
-static struct timespec store_task_timer;
 
 /** The saved ssids and their timestamp. */
 static u64_t ssid_num = 0;
@@ -181,7 +175,7 @@ void queuePop(char* ssid, f32_t* timestamp)
         ssid_queue.full = 0;
 }
 
-void copySSIDsToBuffer(void)
+void readSSID(void)
 {
         char ssid[SSID_SIZE];
 
@@ -193,9 +187,7 @@ void copySSIDsToBuffer(void)
                 {
                         if (!ssid_queue.full && strncmp(ssid, "x00", 3))  /* skip if SSID is x00* */
                         {
-                                pthread_mutex_lock(&ssid_queue.mutex);
                                 queueAdd(ssid, getCurrentTimestamp());
-                                pthread_mutex_unlock(&ssid_queue.mutex);
                         }
                 }
 
@@ -205,63 +197,51 @@ void copySSIDsToBuffer(void)
 
 void storeSSIDs(void)
 {
-        u64_t i, j;
+        u64_t i;
         u8_t ssid_found;
         f32_t timestamp;
         char ssid[SSID_SIZE];
 
-        for (i = 0; i < BUFFER_SIZE; i++)
+        queuePop(ssid, &timestamp);
+
+        ssid_found = 0;
+
+        for (i = 0; i < ssid_num; i++)
         {
-                if (ssid_queue.empty)
+                if (!strcmp(ssids[i], ssid) &&  /* equal */
+                    timestamps[i][num_timestamps[i] - 1] != timestamp)
                 {
+                        num_timestamps[i]++;
+
+                        timestamps[i] = realloc(timestamps[i], sizeof(f32_t) * num_timestamps[i]);
+                        timestamps[i][num_timestamps[i] - 1] = timestamp;
+
+                        latencies[i] = realloc(latencies[i], sizeof(f32_t) * num_timestamps[i]);
+                        latencies[i][num_timestamps[i] - 1] = getCurrentTimestamp() - timestamp;
+
+                        ssid_found = 1;
                         break;
                 }
-                else
-                {
-                        pthread_mutex_lock(&ssid_queue.mutex);
-                        queuePop(ssid, &timestamp);
-                        pthread_mutex_unlock(&ssid_queue.mutex);
-                }
+        }
 
-                ssid_found = 0;
+        if (!ssid_found)
+        {
+                ssid_num++;
 
-                for (j = 0; j < ssid_num; j++)
-                {
-                        if (!strcmp(ssids[j], ssid) &&  /* equal */
-                            timestamps[j][num_timestamps[j] - 1] != timestamp)
-                        {
-                                num_timestamps[j]++;
+                ssids = realloc(ssids, sizeof(char*) * ssid_num);
+                ssids[ssid_num - 1] = malloc(sizeof(char) * SSID_SIZE);
+                strcpy(ssids[ssid_num - 1], ssid);
 
-                                timestamps[j] = realloc(timestamps[j], sizeof(f32_t) * num_timestamps[j]);
-                                timestamps[j][num_timestamps[j] - 1] = timestamp;
+                num_timestamps = realloc(num_timestamps, sizeof(u32_t) * ssid_num);
+                num_timestamps[ssid_num - 1] = 1;
 
-                                latencies[j] = realloc(latencies[j], sizeof(f32_t) * num_timestamps[j]);
-                                latencies[j][num_timestamps[j] - 1] = getCurrentTimestamp() - timestamp;
+                timestamps = realloc(timestamps, sizeof(f32_t*) * ssid_num);
+                timestamps[ssid_num - 1] = malloc(sizeof(f32_t));
+                timestamps[ssid_num - 1][0] = timestamp;
 
-                                ssid_found = 1;
-                                break;
-                        }
-                }
-
-                if (!ssid_found)
-                {
-                        ssid_num++;
-
-                        ssids = realloc(ssids, sizeof(char*) * ssid_num);
-                        ssids[ssid_num - 1] = malloc(sizeof(char) * SSID_SIZE);
-                        strcpy(ssids[ssid_num - 1], ssid);
-
-                        num_timestamps = realloc(num_timestamps, sizeof(u32_t) * ssid_num);
-                        num_timestamps[ssid_num - 1] = 1;
-
-                        timestamps = realloc(timestamps, sizeof(f32_t*) * ssid_num);
-                        timestamps[ssid_num - 1] = malloc(sizeof(f32_t));
-                        timestamps[ssid_num - 1][0] = timestamp;
-
-                        latencies = realloc(latencies, sizeof(f32_t*) * ssid_num);
-                        latencies[ssid_num - 1] = malloc(sizeof(f32_t));
-                        latencies[ssid_num - 1][0] = getCurrentTimestamp() - timestamp;
-                }
+                latencies = realloc(latencies, sizeof(f32_t*) * ssid_num);
+                latencies[ssid_num - 1] = malloc(sizeof(f32_t));
+                latencies[ssid_num - 1][0] = getCurrentTimestamp() - timestamp;
         }
 }
 
@@ -284,7 +264,7 @@ void writeToFile(void)
                         for (j = 0; j < num_timestamps[i]; j++)
                         {
                                 fprintf(file, "    %.3f", timestamps[i][j]);
-                                fprintf(file, "   (%.10f)\n", latencies[i][j]);
+                                fprintf(file, "   (%.6f)\n", latencies[i][j]);
                         }
 
                         fprintf(file, "\n");
@@ -305,13 +285,14 @@ void INIT_TASK(int argc, char** argv)
         }
 
         read_cycle_time = strtoul(argv[1], NULL, 0) * NSEC_PER_SEC;
-        store_cycle_time = read_cycle_time * READ_STORE_CYCLE_RATIO;
 
         ssid_queue.empty = 1;
         ssid_queue.full = 0;
         ssid_queue.head = 0;
         ssid_queue.tail = 0;
         pthread_mutex_init(&ssid_queue.mutex, NULL);
+        pthread_cond_init(&ssid_queue.not_empty, NULL);
+        pthread_cond_init(&ssid_queue.not_full, NULL);
 }
 
 void* READ_TASK(void* ptr)
@@ -324,7 +305,13 @@ void* READ_TASK(void* ptr)
                 /* Calculate next shot */
                 updateInterval(&read_task_timer, read_cycle_time);
 
-                copySSIDsToBuffer();
+                pthread_mutex_lock(&ssid_queue.mutex);
+                while (ssid_queue.full)
+                        pthread_cond_wait(&ssid_queue.not_full, &ssid_queue.mutex);
+
+                readSSID();
+                pthread_mutex_unlock(&ssid_queue.mutex);
+                pthread_cond_signal(&ssid_queue.not_empty);
 
                 /* Sleep for the remaining duration */
                 (void)clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &read_task_timer, NULL);
@@ -335,19 +322,17 @@ void* READ_TASK(void* ptr)
 
 void* STORE_TASK(void* ptr)
 {
-        /* Synchronize scheduler's timer. */
-        clock_gettime(CLOCK_MONOTONIC, &store_task_timer);
-
         while(1)
         {
-                /* Calculate next shot */
-                updateInterval(&store_task_timer, store_cycle_time);
+                pthread_mutex_lock(&ssid_queue.mutex);
+                while (ssid_queue.empty)
+                        pthread_cond_wait(&ssid_queue.not_empty, &ssid_queue.mutex);
 
                 storeSSIDs();
-                writeToFile();
+                pthread_mutex_unlock(&ssid_queue.mutex);  // TODO: Unlock after the critical section
+                pthread_cond_signal(&ssid_queue.not_full);
 
-                /* Sleep for the remaining duration */
-                (void)clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &store_task_timer, NULL);
+                writeToFile();
         }
 
         return (void*)NULL;
@@ -360,6 +345,8 @@ void EXIT_TASK(void)
         free(timestamps);
 
         pthread_mutex_destroy(&ssid_queue.mutex);
+        pthread_cond_destroy(&ssid_queue.not_empty);
+        pthread_cond_destroy(&ssid_queue.not_full);
 }
 
 /********************************** Main Entry *******************************/
