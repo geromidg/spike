@@ -46,8 +46,24 @@
 /** The max size of the SSID. */
 #define SSID_SIZE (64u)
 
+/** The size of the SSID buffer. */
+#define BUFFER_SIZE (32u)
+
 /** The cycle time ratio between the two tasks. */
 #define READ_STORE_CYCLE_RATIO (0.1f)  /* Store task run 10 times slower than Read */
+
+/***************************** Type Definitions ******************************/
+
+/** The SSID queue for the read/store (producer/consumer) model. */
+struct SSIDQueue {
+  char ssid_buffer[BUFFER_SIZE][SSID_SIZE];
+  f32_t timestamp_buffer[BUFFER_SIZE];
+
+  u32_t head, tail;
+  u8_t full, empty;
+  
+  pthread_mutex_t mutex;
+};
 
 /***************************** Static Variables ******************************/
 
@@ -55,17 +71,18 @@
 static u64_t read_cycle_time;
 static u64_t store_cycle_time;
 
-/** The saved ssids and their timestamp. */
-static u64_t ssid_num = 0;
-static char** ssids;
-static char ssid_buffer[32][SSID_SIZE];
-static u8_t buffer_index;
-static u32_t* num_timestamps;
-static f32_t** timestamps;
-
 /** The timers of the tasks. */
 static struct timespec read_task_timer;
 static struct timespec store_task_timer;
+
+/** The saved ssids and their timestamp. */
+static u64_t ssid_num = 0;
+static char** ssids;
+static u32_t* num_timestamps;
+static f32_t** timestamps;
+
+/** The queue to be used by the two tasks. */
+static struct SSIDQueue ssid_queue;
 
 /******************** Static General Function Prototypes *********************/
 
@@ -96,10 +113,9 @@ static void writeToFile(void);
 /********************* Static Task Function Prototypes ***********************/
 
 static void INIT_TASK(int argc, char** argv);
-static void EXIT_TASK(void);
-
 static void* READ_TASK(void* ptr);
 static void* STORE_TASK(void* ptr);
+static void EXIT_TASK(void);
 
 /************************** Static General Functions *************************/
 
@@ -134,41 +150,82 @@ f32_t getTimestamp(void)
         return current_t.tv_sec + (current_t.tv_nsec / (f32_t)1000000000u);
 }
 
+void queueAdd(char* ssid, f32_t timestamp)
+{
+        strcpy(ssid_queue.ssid_buffer[ssid_queue.tail], ssid);
+        ssid_queue.timestamp_buffer[ssid_queue.tail] = timestamp;
+
+        ssid_queue.tail++;
+
+        if (ssid_queue.tail == BUFFER_SIZE)
+                ssid_queue.tail = 0;
+        if (ssid_queue.tail == ssid_queue.head)
+                ssid_queue.full = 1;
+
+        ssid_queue.empty = 0;
+}
+
+void queuePop(char* ssid, f32_t* timestamp)
+{
+        strcpy(ssid, ssid_queue.ssid_buffer[ssid_queue.head]);
+        *timestamp = ssid_queue.timestamp_buffer[ssid_queue.head];
+
+        ssid_queue.head++;
+
+        if (ssid_queue.head == BUFFER_SIZE)
+                ssid_queue.head = 0;
+        if (ssid_queue.head == ssid_queue.tail)
+                ssid_queue.empty = 1;
+
+        ssid_queue.full = 0;
+}
+
 void copySSIDsToBuffer(void)
 {
+        f32_t timestamp;
         char ssid[SSID_SIZE];
 
         FILE *file = popen("/bin/bash searchWifi.sh", "r");
 
-        buffer_index = 0;
-
         if (file != NULL)
         {
+                timestamp = getTimestamp();
+
+                pthread_mutex_lock(&ssid_queue.mutex);
 
                 while (fgets(ssid, sizeof(ssid) - 1, file) != NULL)
                 {
-                        if (strncmp(ssid, "x00", 3))  /* skip if SSID is x00* */
-                        {
-                                strcpy(ssid_buffer[buffer_index++], ssid);
-                        }
+                        if (!ssid_queue.full && strncmp(ssid, "x00", 3))  /* skip if SSID is x00* */
+                                queueAdd(ssid, timestamp);
                 }
+
+                pthread_mutex_unlock(&ssid_queue.mutex);
 
                 pclose(file);
         }
 }
 
-void storeSSIDs(float timestamp)
+void storeSSIDs(void)
 {              
         u64_t i, j;
         u8_t ssid_found;
+        f32_t timestamp;
+        char ssid[SSID_SIZE];
 
-        for (i = 0; i < buffer_index; i++)
+        pthread_mutex_lock(&ssid_queue.mutex);
+
+        for (i = 0; i < BUFFER_SIZE; i++)
         {
+                if (ssid_queue.empty)
+                        break;
+                else
+                        queuePop(ssid, &timestamp);
+
                 ssid_found = 0;
 
                 for (j = 0; j < ssid_num; j++)
                 {
-                        if (!strcmp(ssids[j], ssid_buffer[i]) &&  /* equal and non-existent */
+                        if (!strcmp(ssids[j], ssid) &&  /* equal */
                             timestamps[j][num_timestamps[j] - 1] != timestamp)
                         {
                                 num_timestamps[j]++;
@@ -187,7 +244,7 @@ void storeSSIDs(float timestamp)
 
                         ssids = realloc(ssids, sizeof(char*) * ssid_num);
                         ssids[ssid_num - 1] = malloc(sizeof(char) * SSID_SIZE);
-                        strcpy(ssids[ssid_num - 1], ssid_buffer[i]);
+                        strcpy(ssids[ssid_num - 1], ssid);
 
                         num_timestamps = realloc(num_timestamps, sizeof(u32_t) * ssid_num);
                         num_timestamps[ssid_num - 1] = 1;
@@ -197,6 +254,8 @@ void storeSSIDs(float timestamp)
                         timestamps[ssid_num - 1][0] = timestamp;
                 }
         }
+
+        pthread_mutex_unlock(&ssid_queue.mutex);
 }
 
 void writeToFile(void)
@@ -210,10 +269,10 @@ void writeToFile(void)
                 for (i = 0; i < ssid_num; i++)
                 {
                         fprintf(file, "%s", ssids[i]);
+
                         for (j = 0; j < num_timestamps[i]; j++)
-                        {
                                 fprintf(file, "    %.5f\n", timestamps[i][j]);
-                        }
+
                         fprintf(file, "\n");
                 }
 
@@ -233,6 +292,12 @@ void INIT_TASK(int argc, char** argv)
 
         read_cycle_time = atoi(argv[1]) * NSEC_PER_SEC;
         store_cycle_time = (u64_t)(read_cycle_time * READ_STORE_CYCLE_RATIO);
+
+        ssid_queue.empty = 1;
+        ssid_queue.full = 0;
+        ssid_queue.head = 0;
+        ssid_queue.tail = 0;
+        pthread_mutex_init(&ssid_queue.mutex, NULL);
 }
 
 void* READ_TASK(void* ptr)
@@ -245,7 +310,6 @@ void* READ_TASK(void* ptr)
                 /* Calculate next shot */
                 updateInterval(&read_task_timer, read_cycle_time);
 
-                // TODO: Add timestamp to buffer!
                 copySSIDsToBuffer();
 
                 /* Sleep for the remaining duration */
@@ -257,8 +321,6 @@ void* READ_TASK(void* ptr)
 
 void* STORE_TASK(void* ptr)
 {
-        f32_t timestamp;
-
         /* Synchronize scheduler's timer. */
         clock_gettime(CLOCK_MONOTONIC, &store_task_timer);
 
@@ -267,9 +329,7 @@ void* STORE_TASK(void* ptr)
                 /* Calculate next shot */
                 updateInterval(&store_task_timer, store_cycle_time);
 
-                timestamp = getTimestamp();
-                storeSSIDs(timestamp);
-
+                storeSSIDs();
                 writeToFile();
 
                 /* Sleep for the remaining duration */
@@ -284,6 +344,8 @@ void EXIT_TASK(void)
         free(ssids);
         free(num_timestamps);
         free(timestamps);
+
+        pthread_mutex_destroy(&ssid_queue.mutex);
 }
 
 /********************************** Main Entry *******************************/
