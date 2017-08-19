@@ -111,7 +111,7 @@ static f32_t getCurrentTimestamp(void);
  * @param timestamp The timestamp that corresponds to the SSID.
  * @return Void.
  */
-static void queueAdd(char* ssid, f32_t timestamp)
+static void queueAdd(char* ssid, f32_t timestamp);
 
   /**
    * @brief Pop an SSID and timestamp from the queue.
@@ -119,19 +119,19 @@ static void queueAdd(char* ssid, f32_t timestamp)
    * @param timestamp The timestamp that corresponds to the SSID.
    * @return Void.
    */
-static void queuePop(char* ssid, f32_t* timestamp)
+static void queuePop(char* ssid, f32_t* timestamp);
 
   /**
    * @brief Run a shell script to read and store the SSIDs to a buffer.
    * @return Void.
    */
-static void readSSID(void)
+static void readSSID(void);
 
   /**
    * @brief Store locally the SSIDs and timestamp from the buffers.
    * @return Void.
    */
-static void storeSSIDs(void)
+static void storeSSIDs(void);
 
   /**
    * @brief Write SSIDs and their timestamps to a file.
