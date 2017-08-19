@@ -15,6 +15,8 @@ extern "C" {
 
 /******************************** Inclusions *********************************/
 
+#include <pthread.h>
+
 #include "data_types.h"
 
 /***************************** Macro Definitions *****************************/
@@ -24,6 +26,21 @@ extern "C" {
 
 /** The size of the SSID buffer. */
 #define BUFFER_SIZE (32u)
+
+/***************************** Type Definitions ******************************/
+
+/** The SSID queue for the read/store (producer/consumer) model. */
+struct SSIDQueue {
+  char ssid_buffer[BUFFER_SIZE][SSID_SIZE];
+  f32_t timestamp_buffer[BUFFER_SIZE];
+
+  u32_t head, tail;
+  u8_t full, empty;
+
+  pthread_mutex_t mutex;
+  pthread_cond_t not_empty;
+  pthread_cond_t not_full;
+};
 
 /***************************** Public Functions ******************************/
 

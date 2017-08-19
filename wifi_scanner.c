@@ -12,26 +12,10 @@
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
-#include <pthread.h>
 
 #include "time_helpers.h"
 
 #include "wifi_scanner.h"
-
-/***************************** Type Definitions ******************************/
-
-/** The SSID queue for the read/store (producer/consumer) model. */
-struct SSIDQueue {
-  char ssid_buffer[BUFFER_SIZE][SSID_SIZE];
-  f32_t timestamp_buffer[BUFFER_SIZE];
-
-  u32_t head, tail;
-  u8_t full, empty;
-
-  pthread_mutex_t mutex;
-  pthread_cond_t not_empty;
-  pthread_cond_t not_full;
-};
 
 /***************************** Static Variables ******************************/
 
