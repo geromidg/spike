@@ -88,7 +88,8 @@ static struct SSIDQueue ssid_queue;
 static void prefaultStack(void);
 
 /**
-  * @brief Update the scheduler's timer with a new interval.
+  * @brief Update the tasks's timer with a new interval.
+  * @param task_timer The task's timer to be updated.
   * @param interval The interval needed to perform the update.
   * @return Void.
   */
@@ -101,15 +102,63 @@ static void updateInterval(struct timespec* task_timer, u64_t interval);
 static f32_t getCurrentTimestamp(void);
 
 /**
+  * @brief Add a new SSID and timestamp to the queue.
+  * @param ssid The SSID to be added to the queue.
+  * @param timestamp The timestamp that corresponds to the SSID.
+  * @return Void.
+  */
+static void queueAdd(char* ssid, f32_t timestamp)
+
+/**
+  * @brief Pop an SSID and timestamp from the queue.
+  * @param ssid The SSID to be popped from the queue.
+  * @param timestamp The timestamp that corresponds to the SSID.
+  * @return Void.
+  */
+static void queuePop(char* ssid, f32_t* timestamp)
+
+/**
+  * @brief Run a shell script to read and store the SSIDs to a buffer.
+  * @return Void.
+  */
+static void readSSID(void)
+
+/**
+  * @brief Store locally the SSIDs and timestamp from the buffers.
+  * @return Void.
+  */
+static void storeSSIDs(void)
+
+/**
   * @brief Write SSIDs and their timestamps to a file.
+  * @return Void.
   */
 static void writeToFile(void);
 
 /********************* Static Task Function Prototypes ***********************/
 
+/**
+  * @brief The initial task is run before the threads are created.
+  * @return Void.
+  */
 static void INIT_TASK(int argc, char** argv);
+
+/**
+  * @brief The read task scans for wifi.
+  * @return Void.
+  */
 static void* READ_TASK(void* ptr);
+
+/**
+  * @brief The store task stores scanned data to a file.
+  * @return Void.
+  */
 static void* STORE_TASK(void* ptr);
+
+/**
+  * @brief The exit task is run after the threads are joined.
+  * @return Void.
+  */
 static void EXIT_TASK(void);
 
 /************************** Static General Functions *************************/
@@ -274,7 +323,7 @@ void writeToFile(void)
         }
 }
 
-/*****************************************************************************/
+/************************** Static Task Functions ****************************/
 
 void INIT_TASK(int argc, char** argv)
 {
@@ -297,7 +346,7 @@ void INIT_TASK(int argc, char** argv)
 
 void* READ_TASK(void* ptr)
 {
-        /* Synchronize scheduler's timer. */
+        /* Synchronize tasks's timer. */
         clock_gettime(CLOCK_MONOTONIC, &read_task_timer);
 
         while(1)
@@ -329,7 +378,7 @@ void* STORE_TASK(void* ptr)
                         pthread_cond_wait(&ssid_queue.not_empty, &ssid_queue.mutex);
 
                 storeSSIDs();
-                pthread_mutex_unlock(&ssid_queue.mutex);  // TODO: Unlock after the critical section
+                pthread_mutex_unlock(&ssid_queue.mutex);  /* TODO: Unlock after the critical section */
                 pthread_cond_signal(&ssid_queue.not_full);
 
                 writeToFile();
