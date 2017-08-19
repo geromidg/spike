@@ -1,4 +1,4 @@
-TARGET = project_3
+TARGET = wifi_scanner
 
 LIBS = -pthread -lrt
 CC = gcc
