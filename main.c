@@ -61,7 +61,7 @@ struct SSIDQueue {
 
   u32_t head, tail;
   u8_t full, empty;
-  
+
   pthread_mutex_t mutex;
 };
 
@@ -191,35 +191,39 @@ void copySSIDsToBuffer(void)
         {
                 timestamp = getTimestamp();
 
-                pthread_mutex_lock(&ssid_queue.mutex);
-
                 while (fgets(ssid, sizeof(ssid) - 1, file) != NULL)
                 {
                         if (!ssid_queue.full && strncmp(ssid, "x00", 3))  /* skip if SSID is x00* */
+                        {
+                                pthread_mutex_lock(&ssid_queue.mutex);
                                 queueAdd(ssid, timestamp);
+                                pthread_mutex_unlock(&ssid_queue.mutex);
+                        }
                 }
-
-                pthread_mutex_unlock(&ssid_queue.mutex);
 
                 pclose(file);
         }
 }
 
 void storeSSIDs(void)
-{              
+{
         u64_t i, j;
         u8_t ssid_found;
         f32_t timestamp;
         char ssid[SSID_SIZE];
 
-        pthread_mutex_lock(&ssid_queue.mutex);
-
         for (i = 0; i < BUFFER_SIZE; i++)
         {
                 if (ssid_queue.empty)
+                {
                         break;
+                }
                 else
+                {
+                        pthread_mutex_lock(&ssid_queue.mutex);
                         queuePop(ssid, &timestamp);
+                        pthread_mutex_unlock(&ssid_queue.mutex);
+                }
 
                 ssid_found = 0;
 
@@ -232,7 +236,7 @@ void storeSSIDs(void)
 
                                 timestamps[j] = realloc(timestamps[j], sizeof(f32_t) * num_timestamps[j]);
                                 timestamps[j][num_timestamps[j] - 1] = timestamp;
-                               
+
                                 ssid_found = 1;
                                 break;
                         }
@@ -254,8 +258,6 @@ void storeSSIDs(void)
                         timestamps[ssid_num - 1][0] = timestamp;
                 }
         }
-
-        pthread_mutex_unlock(&ssid_queue.mutex);
 }
 
 void writeToFile(void)
@@ -271,7 +273,7 @@ void writeToFile(void)
                         fprintf(file, "%s", ssids[i]);
 
                         for (j = 0; j < num_timestamps[i]; j++)
-                                fprintf(file, "    %.5f\n", timestamps[i][j]);
+                                fprintf(file, "    %.8f\n", timestamps[i][j]);
 
                         fprintf(file, "\n");
                 }
