@@ -41,7 +41,7 @@
 #define MAX_SAFE_STACK (128u * 1024u)
 
 /** The number of nsecs per sec. */
-#define NSEC_PER_SEC (1000000000u)
+#define NSEC_PER_SEC (1000000000ul)
 
 /** The max size of the SSID. */
 #define SSID_SIZE (64u)
@@ -290,8 +290,8 @@ void INIT_TASK(int argc, char** argv)
                 exit(-4);
         }
 
-        read_cycle_time = atoi(argv[1]) * NSEC_PER_SEC;
-        store_cycle_time = (u64_t)(read_cycle_time * READ_STORE_CYCLE_RATIO);
+        read_cycle_time = strtoul(argv[1], NULL, 0) * NSEC_PER_SEC;
+        store_cycle_time = read_cycle_time * READ_STORE_CYCLE_RATIO;
 
         ssid_queue.empty = 1;
         ssid_queue.full = 0;
