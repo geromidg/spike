@@ -80,6 +80,7 @@ static u64_t ssid_num = 0;
 static char** ssids;
 static u32_t* num_timestamps;
 static f32_t** timestamps;
+static f32_t** latencies;
 
 /** The queue to be used by the two tasks. */
 static struct SSIDQueue ssid_queue;
@@ -103,7 +104,7 @@ static void updateInterval(struct timespec* task_timer, u64_t interval);
   * @brief Get the current time.
   * @return The current time.
   */
-static f32_t getTimestamp(void);
+static f32_t getCurrentTimestamp(void);
 
 /**
   * @brief Write SSIDs and their timestamps to a file.
@@ -141,7 +142,7 @@ void updateInterval(struct timespec* task_timer, u64_t interval)
 }
 
 
-f32_t getTimestamp(void)
+f32_t getCurrentTimestamp(void)
 {
         struct timespec current_t;
 
@@ -182,21 +183,18 @@ void queuePop(char* ssid, f32_t* timestamp)
 
 void copySSIDsToBuffer(void)
 {
-        f32_t timestamp;
         char ssid[SSID_SIZE];
 
         FILE *file = popen("/bin/bash searchWifi.sh", "r");
 
         if (file != NULL)
         {
-                timestamp = getTimestamp();
-
                 while (fgets(ssid, sizeof(ssid) - 1, file) != NULL)
                 {
                         if (!ssid_queue.full && strncmp(ssid, "x00", 3))  /* skip if SSID is x00* */
                         {
                                 pthread_mutex_lock(&ssid_queue.mutex);
-                                queueAdd(ssid, timestamp);
+                                queueAdd(ssid, getCurrentTimestamp());
                                 pthread_mutex_unlock(&ssid_queue.mutex);
                         }
                 }
@@ -237,6 +235,9 @@ void storeSSIDs(void)
                                 timestamps[j] = realloc(timestamps[j], sizeof(f32_t) * num_timestamps[j]);
                                 timestamps[j][num_timestamps[j] - 1] = timestamp;
 
+                                latencies[j] = realloc(latencies[j], sizeof(f32_t) * num_timestamps[j]);
+                                latencies[j][num_timestamps[j] - 1] = getCurrentTimestamp() - timestamp;
+
                                 ssid_found = 1;
                                 break;
                         }
@@ -256,6 +257,10 @@ void storeSSIDs(void)
                         timestamps = realloc(timestamps, sizeof(f32_t*) * ssid_num);
                         timestamps[ssid_num - 1] = malloc(sizeof(f32_t));
                         timestamps[ssid_num - 1][0] = timestamp;
+
+                        latencies = realloc(latencies, sizeof(f32_t*) * ssid_num);
+                        latencies[ssid_num - 1] = malloc(sizeof(f32_t));
+                        latencies[ssid_num - 1][0] = getCurrentTimestamp() - timestamp;
                 }
         }
 }
@@ -268,12 +273,19 @@ void writeToFile(void)
 
         if (file != NULL)
         {
+                fprintf(file, "SSID\n");
+                fprintf(file, "    timestamp  (latency)\n");
+                fprintf(file, "=========================\n\n");
+
                 for (i = 0; i < ssid_num; i++)
                 {
                         fprintf(file, "%s", ssids[i]);
 
                         for (j = 0; j < num_timestamps[i]; j++)
-                                fprintf(file, "    %.8f\n", timestamps[i][j]);
+                        {
+                                fprintf(file, "    %.3f", timestamps[i][j]);
+                                fprintf(file, "   (%.10f)\n", latencies[i][j]);
+                        }
 
                         fprintf(file, "\n");
                 }
