@@ -188,12 +188,21 @@ void storeSSIDs(void)
     {
       num_timestamps[i]++;
 
-      timestamps[i] = realloc(timestamps[i],
-        sizeof(f32_t) * num_timestamps[i]);
-      timestamps[i][num_timestamps[i] - 1] = timestamp;
+      if ((timestamps[i] = realloc(timestamps[i], sizeof(f32_t) * num_timestamps[i])))
+        timestamps[i][num_timestamps[i] - 1] = timestamp;
+      else
+      {
+        perror("Memory allocation failed!");
+        exit(-5);
+      }
 
-      latencies[i] = realloc(latencies[i], sizeof(f32_t) * num_timestamps[i]);
-      latencies[i][num_timestamps[i] - 1] = getCurrentTimestamp() - timestamp;
+      if ((latencies[i] = realloc(latencies[i], sizeof(f32_t) * num_timestamps[i])))
+        latencies[i][num_timestamps[i] - 1] = getCurrentTimestamp() - timestamp;
+      else
+      {
+        perror("Memory allocation failed!");
+        exit(-5);
+      }
 
       ssid_found = 1;
       break;
@@ -204,20 +213,61 @@ void storeSSIDs(void)
   {
     ssid_num++;
 
-    ssids = realloc(ssids, sizeof(char*) * ssid_num);
-    ssids[ssid_num - 1] = malloc(sizeof(char) * SSID_SIZE);
-    strcpy(ssids[ssid_num - 1], ssid);
+    if ((ssids = realloc(ssids, sizeof(char*) * ssid_num)))
+    {
+      if ((ssids[ssid_num - 1] = malloc(sizeof(char) * SSID_SIZE)))
+        strcpy(ssids[ssid_num - 1], ssid);
+      else
+      {
+        perror("Memory allocation failed!");
+        exit(-5);
+      }
+    }
+    else
+    {
+      perror("Memory allocation failed!");
+      exit(-5);
+    }
 
-    num_timestamps = realloc(num_timestamps, sizeof(u32_t) * ssid_num);
-    num_timestamps[ssid_num - 1] = 1;
+    if ((num_timestamps = realloc(num_timestamps, sizeof(u32_t) * ssid_num)))
+      num_timestamps[ssid_num - 1] = 1;
+    else
+    {
+      perror("Memory allocation failed!");
+      exit(-5);
+    }
 
-    timestamps = realloc(timestamps, sizeof(f32_t*) * ssid_num);
-    timestamps[ssid_num - 1] = malloc(sizeof(f32_t));
-    timestamps[ssid_num - 1][0] = timestamp;
+    if ((timestamps = realloc(timestamps, sizeof(f32_t*) * ssid_num)))
+    {
+      if ((timestamps[ssid_num - 1] = malloc(sizeof(f32_t))))
+        timestamps[ssid_num - 1][0] = timestamp;
+      else
+      {
+        perror("Memory allocation failed!");
+        exit(-5);
+      }
+    }
+    else
+    {
+      perror("Memory allocation failed!");
+      exit(-5);
+    }
 
-    latencies = realloc(latencies, sizeof(f32_t*) * ssid_num);
-    latencies[ssid_num - 1] = malloc(sizeof(f32_t));
-    latencies[ssid_num - 1][0] = getCurrentTimestamp() - timestamp;
+    if ((latencies = realloc(latencies, sizeof(f32_t*) * ssid_num)))
+    {
+      if ((latencies[ssid_num - 1] = malloc(sizeof(f32_t))))
+        latencies[ssid_num - 1][0] = getCurrentTimestamp() - timestamp;
+      else
+      {
+        perror("Memory allocation failed!");
+        exit(-5);
+      }
+    }
+    else
+    {
+      perror("Memory allocation failed!");
+      exit(-5);
+    }
   }
 
   pthread_mutex_unlock(&ssid_queue.mutex);
