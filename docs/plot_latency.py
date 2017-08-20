@@ -58,7 +58,7 @@ def generate_plot(x, y):
     figure.autofmt_xdate()
     figure.tight_layout()
     figure.subplots_adjust(top=0.88)
-    figure.savefig('latency.png', bbox_inches='tight')
+    figure.savefig('latency.png', dpi=60, bbox_inches='tight')
 
 if __name__ == '__main__':
     x, y = parse_logfile('../src/ssids.txt')

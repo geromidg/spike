@@ -74,8 +74,7 @@ This gives the opportunity to use storage of **fixed size** and recycle SSIDs an
 2. The read/store tasks can cause **latency issues** if the buffer is too small or if the cycle time of the task is too short.<br>
 A solution to this would be to **preempt** the tasks that exceed their time slice.<br>
 However, that would imply the loss of data at the cost of lower latency.
+<br><br><br><br>
 
-<br>
-<br>
 *Dimitrios Panagiotis G. Geromichalos*<br>
 *August, 2017*
