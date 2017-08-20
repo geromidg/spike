@@ -1,4 +1,4 @@
-TARGET = wifi_scanner
+TARGET = rt_wifi_scanner
 
 LIBS = -pthread -lrt
 CC = gcc

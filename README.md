@@ -1,13 +1,17 @@
-WiFi Scanner
-============
+RT WiFi Scanner
+===============
 
 # Overview
-WiFi Scanner is an application that scans the nearby available WiFi networks.<br>
+RT WiFi Scanner is an application that scans the nearby available WiFi networks.<br>
 Its purpose is to provide useful data that can be analyzed in order to extract information regarding the movement of a person or a vehicle.<br>
-It is designed to run with **real-time** assumptions for an **embedded** device.
+It is designed to run with **real-time** guarantees for an **embedded** device.
 
-# Real-time Linux
-The normal Linux distribution does not offer **hard** real-time guarantees.<br>
+To execute the program, run:<br>
+`$ make`<br>
+`$ sudo ./rt_wifi_scanner [cycle_time]`
+
+# Real-Time Linux
+The normal Linux distribution does not offer **hard** real-time capabilities.<br>
 In order to achieve those, a real-time preemption patch (*RT-PREEMPT*) is applied to the Linux kernel.
 
 #### Performance
@@ -51,10 +55,17 @@ In the first test, the cycle time of the read task was 5 seconds and in the seco
 It is worth noticing that the script that reads the WiFi networks takes around 3 seconds to execute.
 
 The result of the first experiment can be seen here:
-![Experiment 1](docs/latency_5.jpg)
+
+![Experiment 1](docs/latency_5.png)
+
+With 5 seconds as a cycle time, the latency is around 3-4 ms.
 
 Similar results were noted with the second experiment:
-![Experiment 2](docs/latency_10.jpg)
+
+![Experiment 2](docs/latency_10.png)
+
+With 10 seconds as a cycle time, the latency is around 0.8-0.9 ms.<br>
+This is expected, since the consumer task has more time to perform its actions.
 
 # Problems & Improvements
 1. Because the program runs forever, and the memory is allocated dynamically, it will eventually **run out of memory**.<br>

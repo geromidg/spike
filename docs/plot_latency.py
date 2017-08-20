@@ -47,14 +47,15 @@ def generate_plot(x, y):
     """
     
     figure = plt.figure(figsize=(10, 6))
-    figure.suptitle('Timestamp - Latency', fontsize=24)
+    # figure.suptitle('Timestamp - Latency', fontsize=24)
     axes = figure.add_subplot(1, 1, 1)
-    axes.set_xlabel('[sec]', fontsize=18)
-    axes.set_ylabel('[usec]', fontsize=18)
+    axes.set_xlabel('Timestamp [sec]', fontsize=18)
+    axes.set_ylabel('Latency [usec]', fontsize=18)
     axes.plot(x, y, '.-', linewidth=2, markersize=20, color="green")
     axes.set_xticks(x)
     axes.margins(0.04)
 
+    figure.autofmt_xdate()
     figure.tight_layout()
     figure.subplots_adjust(top=0.88)
     figure.savefig('latency.png', bbox_inches='tight')
