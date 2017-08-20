@@ -60,5 +60,5 @@ def generate_plot(x, y):
     figure.savefig('latency.png', bbox_inches='tight')
 
 if __name__ == '__main__':
-    x, y = parse_logfile('src/ssids.txt')
+    x, y = parse_logfile('../src/ssids.txt')
     generate_plot(x, y)
